@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "c4accounts"
+version = "0.0.1"
+description = "C4 Accounts Custom App"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "frappe"
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["c4accounts*"]

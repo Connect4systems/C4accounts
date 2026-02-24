@@ -1,0 +1,2 @@
+recursive-include c4accounts *.json *.js *.py *.txt *.css *.html *.md
+recursive-exclude c4accounts *.pyc
