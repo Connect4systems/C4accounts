@@ -1,5 +1,5 @@
 import calendar
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 import frappe
 from frappe import _
@@ -21,16 +21,6 @@ MONTHS = {
     "December": 12,
 }
 
-STATUS_ABBR = {
-    "Present": "P",
-    "Absent": "A",
-    "On Leave": "L",
-    "Half Day": "HD",
-    "Work From Home": "WFH",
-    "Holiday": "H",
-    "Weekly Off": "WO",
-}
-
 
 def execute(filters=None):
     filters = frappe._dict(filters or {})
@@ -45,10 +35,11 @@ def execute(filters=None):
     if not employees:
         return columns, []
 
-    attendance_map = get_attendance_map([employee.name for employee in employees], from_date, to_date)
+    checkin_map = get_checkin_map([employee.name for employee in employees], from_date, to_date)
+    leave_map = get_leave_map([employee.name for employee in employees], from_date, to_date)
     holiday_map = get_holiday_map(employees, filters.company, from_date, to_date)
 
-    data = get_data(employees, day_columns, attendance_map, holiday_map)
+    data = get_data(employees, day_columns, checkin_map, leave_map, holiday_map)
     return columns, data
 
 
@@ -154,12 +145,6 @@ def get_columns(day_columns):
                 "width": 55,
             },
             {
-                "label": _("HD"),
-                "fieldname": "total_half_day",
-                "fieldtype": "Int",
-                "width": 60,
-            },
-            {
                 "label": _("WO"),
                 "fieldname": "total_weekly_off",
                 "fieldtype": "Int",
@@ -200,23 +185,55 @@ def get_employees(filters):
     )
 
 
-def get_attendance_map(employee_names, from_date, to_date):
-    attendance_map = {}
+def get_checkin_map(employee_names, from_date, to_date):
+    checkin_map = {}
+    from_datetime = datetime.combine(from_date, time.min)
+    to_datetime = datetime.combine(to_date, time.max)
 
     records = frappe.get_all(
-        "Attendance",
+        "Employee Checkin",
         filters={
             "employee": ["in", employee_names],
-            "attendance_date": ["between", [from_date, to_date]],
-            "docstatus": ["<", 2],
+            "time": ["between", [from_datetime, to_datetime]],
         },
-        fields=["employee", "attendance_date", "status"],
+        fields=["employee", "time"],
     )
 
     for record in records:
-        attendance_map[(record.employee, getdate(record.attendance_date))] = get_status_abbr(record.status)
+        checkin_map[(record.employee, getdate(record.time))] = True
 
-    return attendance_map
+    return checkin_map
+
+
+def get_leave_map(employee_names, from_date, to_date):
+    leave_map = {}
+
+    leave_rows = frappe.db.sql(
+        """
+        SELECT employee, from_date, to_date
+        FROM `tabLeave Application`
+        WHERE employee IN %(employees)s
+          AND status = 'Approved'
+          AND docstatus = 1
+          AND from_date <= %(to_date)s
+          AND to_date >= %(from_date)s
+        """,
+        {
+            "employees": tuple(employee_names),
+            "from_date": from_date,
+            "to_date": to_date,
+        },
+        as_dict=True,
+    )
+
+    for row in leave_rows:
+        start_date = max(getdate(row.from_date), from_date)
+        end_date = min(getdate(row.to_date), to_date)
+
+        for leave_date in daterange(start_date, end_date):
+            leave_map[(row.employee, leave_date)] = "L"
+
+    return leave_map
 
 
 def get_holiday_map(employees, company, from_date, to_date):
@@ -265,7 +282,7 @@ def daterange(from_date, to_date):
         current += timedelta(days=1)
 
 
-def get_data(employees, day_columns, attendance_map, holiday_map):
+def get_data(employees, day_columns, checkin_map, leave_map, holiday_map):
     data = []
 
     for employee in employees:
@@ -277,17 +294,18 @@ def get_data(employees, day_columns, attendance_map, holiday_map):
             "total_present": 0,
             "total_absent": 0,
             "total_leave": 0,
-            "total_half_day": 0,
             "total_weekly_off": 0,
             "total_holiday": 0,
         }
 
         for day_column in day_columns:
             current_date = day_column["date"]
-            status = attendance_map.get((employee.name, current_date))
-
-            if not status:
-                status = holiday_map.get((employee.name, current_date), "")
+            if leave_map.get((employee.name, current_date)):
+                status = "L"
+            elif checkin_map.get((employee.name, current_date)):
+                status = "P"
+            else:
+                status = holiday_map.get((employee.name, current_date)) or "A"
 
             row[day_column["fieldname"]] = status
 
@@ -297,8 +315,6 @@ def get_data(employees, day_columns, attendance_map, holiday_map):
                 row["total_absent"] += 1
             elif status == "L":
                 row["total_leave"] += 1
-            elif status == "HD":
-                row["total_half_day"] += 1
             elif status == "WO":
                 row["total_weekly_off"] += 1
             elif status == "H":
@@ -309,15 +325,3 @@ def get_data(employees, day_columns, attendance_map, holiday_map):
     return data
 
 
-def get_status_abbr(status):
-    if status in STATUS_ABBR:
-        return STATUS_ABBR[status]
-
-    if not status:
-        return ""
-
-    parts = [part for part in str(status).split() if part]
-    if not parts:
-        return ""
-
-    return "".join(part[0].upper() for part in parts)
