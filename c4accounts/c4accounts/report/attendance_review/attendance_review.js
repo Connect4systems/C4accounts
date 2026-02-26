@@ -1,0 +1,60 @@
+frappe.query_reports["Attendance Review"] = {
+    filters: [
+        {
+            fieldname: "company",
+            label: __("Company"),
+            fieldtype: "Link",
+            options: "Company",
+            reqd: 1,
+            default: frappe.defaults.get_user_default("Company"),
+        },
+        {
+            fieldname: "month",
+            label: __("Month"),
+            fieldtype: "Select",
+            reqd: 1,
+            options: [
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
+            ].join("\n"),
+            default: frappe.datetime.str_to_obj(frappe.datetime.get_today()).toLocaleString("default", {
+                month: "long",
+            }),
+        },
+        {
+            fieldname: "year",
+            label: __("Year"),
+            fieldtype: "Int",
+            reqd: 1,
+            default: frappe.datetime.str_to_obj(frappe.datetime.get_today()).getFullYear(),
+        },
+        {
+            fieldname: "employee",
+            label: __("Employee"),
+            fieldtype: "Link",
+            options: "Employee",
+        },
+        {
+            fieldname: "department",
+            label: __("Department"),
+            fieldtype: "Link",
+            options: "Department",
+        },
+        {
+            fieldname: "designation",
+            label: __("Designation"),
+            fieldtype: "Link",
+            options: "Designation",
+        },
+    ],
+};
